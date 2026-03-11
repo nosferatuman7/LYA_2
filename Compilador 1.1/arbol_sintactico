@@ -1,0 +1,15 @@
+// Árbol Sintáctico
+digraph {
+	rankdir=TB
+	n0 [label=programa fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n1 [label=bloque fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n0 -> n1
+	n2 [label=declaracion fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n1 -> n2
+	n3 [label=entero fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n2 -> n3
+	n4 [label=velocidad fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n2 -> n4
+	n5 [label=";" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n2 -> n5
+}

@@ -1,0 +1,103 @@
+VALIDO
+--------------------------------------------------------
+INICIO {
+    entero velocidad = 10;
+    real tiempo = 2.5;
+    cadena mensaje = "hola mundo";
+
+    funcion mover(entero v) {
+        si (v > 0) {
+            imprimir(mensaje);
+        }
+    }
+
+    mover(velocidad);
+} FIN
+--------------------------------------------------------
+INICIO {
+    entero velocidad = 10;
+    real tiempo = 2.5;
+
+    funcion mover(entero v) {
+        si (v > 0) {
+            imprimir(no_existe);
+        }
+    }
+
+    mover(velocidad);
+} FIN
+--------------------------------------------------------
+
+--------------------------------------------------------
+
+--------------------------------------------------------
+
+--------------------------------------------------------
+justifiacion:
+* orientado a placas rasperry pi
+* sintaxis facil de aprender y en español
+* variables mapeadas en hardware especifico
+
+
+inicio {
+    entero oi = 15
+    entero od = 14;
+    entero pi_pin = 17;
+    entero pd_pin = 16;
+
+    entero pwma = 5;
+    entero ain2 = 4;
+    entero ain1 = 9;
+    entero bin1 = 7;
+    entero bin2 = 8;
+    entero pwmb = 6;
+
+    entero blanco = 55;
+    entero negro = 800;
+
+    sensor pi = { pin = pi_pin };
+    sensor pd = { pin = pd_pin };
+    sensor oi_s = { pin = oi };
+    sensor od_s = { pin = od };
+
+    motor m_izq = { pwm = pwma, in1 = ain1, in2 = ain2 };
+    motor m_der = { pwm = pwmb, in1 = bin1, in2 = bin2 };
+
+    func avanzar(entero pwmd, entero pwmi) {
+        m_izq->girarmotor(pwmi);
+        m_der->girarmotor(pwmd);
+        retraso(20);
+    }
+
+    func retroceder(entero pwmd, entero pwmi) {
+        m_izq->girarmotor(-pwmi);
+        m_der->girarmotor(-pwmd);
+        retraso(20);
+    }
+
+    func derecha(entero pwmd, entero pwmi) {
+        m_izq->girarmotor(-pwmd);
+        m_der->girarmotor(pwmi);
+        retraso(20);
+    }
+
+    mientras (true) {
+        entero a = pi->valor();
+        entero b = pd->valor();
+
+        si ((a < blanco) || (b < blanco)) {
+            retroceder(125, 125);
+            retraso(380);
+            derecha(150, 150);
+            retraso(500);
+        } sino {
+            si ((od_s->valor() == true) || (oi_s->valor() == true)) {
+                avanzar(215, 200);
+                retraso(10);
+            } sino {
+                avanzar(86, 80);
+                retraso(10);
+            }
+        }
+    }
+} fin
