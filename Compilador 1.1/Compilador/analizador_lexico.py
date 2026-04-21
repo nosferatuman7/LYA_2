@@ -1,4 +1,5 @@
 from analizador_semantico import AnalizadorSemantico
+from generador_codigo_intermedio import GeneradorCodigoIntermedio
 
 from lexer import (
     tokens,
@@ -111,6 +112,17 @@ def analizar_codigo():
 
     # 5. mostrar errores + tabla de simbolos
     mostrar_resultados()
+
+    # 5.5 generacion de codigo intermedio (TAC) solo si no hay errores
+    if resultado and not errores_lexicos and not errores_sintacticos and not errores_semanticos:
+        try:
+            gen = GeneradorCodigoIntermedio()
+            gen.generar(resultado)
+            codigo_tac = gen.obtener_codigo()
+            salida_analizador.insert(tk.END, "--- codigo intermedio (TAC) ---")
+            salida_analizador.insert(tk.END, codigo_tac + "")
+        except Exception as e:
+            salida_analizador.insert(tk.END, f"--- codigo intermedio (TAC) --- x error al generar codigo intermedio: {e}")
 
     # 6. ejecutar solo si no hay errores
     if not errores_lexicos and not errores_sintacticos and not errores_semanticos:
