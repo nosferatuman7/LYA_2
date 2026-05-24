@@ -316,13 +316,26 @@ def p_para(p):
 def p_asignacion_para(p):
     """asignacion_para : tipo ID ASIGNACION expresion
                        | ID ASIGNACION expresion"""
-    p[0] = NodoAST("asignacion_para", [NodoAST(str(e)) for e in p[1:]])
+    # Conservamos los nodos reales de expresion (no su str) para que el
+    # interprete y el generador de codigo objeto puedan ejecutarlos/traducirlos.
+    if len(p) == 5:
+        # tipo ID = expresion
+        p[0] = NodoAST("asignacion_para", [p[1], NodoAST(p[2]), NodoAST("="), p[4]])
+    else:
+        # ID = expresion
+        p[0] = NodoAST("asignacion_para", [NodoAST(p[1]), NodoAST("="), p[3]])
 
 def p_actualizacion_para(p):
     """actualizacion_para : ID ASIGNACION expresion
                           | ID MASMAS
                           | ID MENOSMENOS"""
-    p[0] = NodoAST("actualizacion_para", [NodoAST(str(e)) for e in p[1:]])
+    # Igual que arriba: preservamos el nodo de expresion en la asignacion.
+    if len(p) == 4:
+        # ID = expresion
+        p[0] = NodoAST("actualizacion_para", [NodoAST(p[1]), NodoAST("="), p[3]])
+    else:
+        # ID ++  /  ID --
+        p[0] = NodoAST("actualizacion_para", [NodoAST(p[1]), NodoAST(p[2])])
 
 def p_funcion(p):
     "funcion : FUNC ID PARENTESIS_A parametros PARENTESIS_B bloque_codigo"

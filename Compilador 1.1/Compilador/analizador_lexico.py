@@ -1,4 +1,7 @@
 from analizador_semantico import AnalizadorSemantico
+from generador_codigo_intermedio import GeneradorCodigoIntermedio
+from interprete import Interprete
+from generador_codigo_objeto import GeneradorCodigoObjeto
 
 from lexer import (
     tokens,
@@ -19,8 +22,13 @@ from analizador_sintactico import (
 import tkinter as tk
 from tkinter import scrolledtext
 import re
+import os
 import difflib
 from ply.lex import LexToken
+
+# guarda el ultimo codigo objeto generado (para el boton "ver codigo objeto")
+ultimo_codigo_objeto = ""
+ruta_codigo_objeto = ""
 
 # ------------------------ listas de errores ------------------------
 
@@ -68,6 +76,7 @@ def analizar_codigo():
     procesar_tokens(tokens_para_tabla)
 
     # 2. analisis sintactico
+    resultado = None
     salida_analizador.insert(tk.END, "\n--- arbol sintactico ---\n")
     try:
         lexer.lineno = 1
@@ -112,9 +121,46 @@ def analizar_codigo():
     # 5. mostrar errores + tabla de simbolos
     mostrar_resultados()
 
-    # 6. ejecutar solo si no hay errores
-    if not errores_lexicos and not errores_sintacticos and not errores_semanticos:
-        ejecutar_codigo(contenido)
+    # 5.5 generacion de codigo intermedio (TAC) solo si no hay errores
+    if resultado and not errores_lexicos and not errores_sintacticos and not errores_semanticos:
+        try:
+            gen = GeneradorCodigoIntermedio()
+            gen.generar(resultado)
+            codigo_tac = gen.obtener_codigo()
+            salida_analizador.insert(tk.END, "--- codigo intermedio (TAC) ---")
+            salida_analizador.insert(tk.END, codigo_tac + "")
+        except Exception as e:
+            salida_analizador.insert(tk.END, f"--- codigo intermedio (TAC) --- x error al generar codigo intermedio: {e}")
+
+    # 6. ejecutar el programa con el INTERPRETE real (sobre el AST)
+    if resultado and not errores_lexicos and not errores_sintacticos and not errores_semanticos:
+        try:
+            salida_ejecucion.insert(tk.END, "=== ejecucion del programa ===\n")
+            interprete = Interprete(salida=imprimir_en_lenguaje, max_iteraciones=1000)
+            interprete.ejecutar(resultado)
+            salida_ejecucion.insert(tk.END, "=== fin de la ejecucion ===\n")
+        except Exception as e:
+            salida_ejecucion.insert(tk.END, f"x error al ejecutar el programa: {e}\n")
+
+    # 7. GENERACION DE CODIGO OBJETO (Python / Raspberry Pi)
+    if resultado and not errores_lexicos and not errores_sintacticos and not errores_semanticos:
+        global ultimo_codigo_objeto, ruta_codigo_objeto
+        try:
+            gen_obj = GeneradorCodigoObjeto()
+            ultimo_codigo_objeto = gen_obj.generar(resultado)
+
+            ruta_codigo_objeto = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "codigo_objeto_generado.py"
+            )
+            with open(ruta_codigo_objeto, "w", encoding="utf-8") as f:
+                f.write(ultimo_codigo_objeto)
+
+            salida_analizador.insert(tk.END, "\n--- codigo objeto (Python / Raspberry Pi) ---\n")
+            salida_analizador.insert(tk.END, ultimo_codigo_objeto + "\n")
+            salida_analizador.insert(tk.END, f"[guardado en: {ruta_codigo_objeto}]\n")
+        except Exception as e:
+            salida_analizador.insert(tk.END, f"\n--- codigo objeto --- x error al generar: {e}\n")
 
 
 # --------- logica de tokens / tabla de simbolos ---------
@@ -515,8 +561,25 @@ actualizar_numeros_linea()
 
 # ---------- boton analizar ----------
 
+def abrir_codigo_objeto():
+    """Abre el archivo de codigo objeto (.py) generado en la ultima ejecucion."""
+    if ruta_codigo_objeto and os.path.exists(ruta_codigo_objeto):
+        try:
+            os.startfile(ruta_codigo_objeto)
+        except Exception as e:
+            salida_analizador.insert(tk.END, f"\nx no se pudo abrir el codigo objeto: {e}\n")
+    else:
+        salida_analizador.insert(
+            tk.END,
+            "\n[info] aun no hay codigo objeto generado. Pulsa 'analizar' con un programa valido.\n"
+        )
+
+
+frame_botones = tk.Frame(ventana, bg="#1e1e2f")
+frame_botones.pack(pady=5)
+
 btn = tk.Button(
-    ventana,
+    frame_botones,
     text="analizar",
     font=("arial", 12, "bold"),
     bg="#ff9800",
@@ -529,7 +592,23 @@ btn = tk.Button(
     pady=5,
     command=analizar_codigo,
 )
-btn.pack(pady=5)
+btn.pack(side="left", padx=5)
+
+btn_codigo_objeto = tk.Button(
+    frame_botones,
+    text="ver codigo objeto (.py)",
+    font=("arial", 12, "bold"),
+    bg="#4caf50",
+    fg="black",
+    activebackground="#81c784",
+    activeforeground="black",
+    relief="raised",
+    bd=4,
+    padx=10,
+    pady=5,
+    command=abrir_codigo_objeto,
+)
+btn_codigo_objeto.pack(side="left", padx=5)
 
 # ---------- frame de salidas (dos columnas) ----------
 
