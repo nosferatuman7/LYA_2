@@ -18,6 +18,7 @@ from lexer import errores_lexicos
 from analizador_sintactico import parsear_codigo, errores_sintacticos
 from analizador_semantico import AnalizadorSemantico
 from generador_codigo_intermedio import GeneradorCodigoIntermedio
+from optimizador_codigo_intermedio import OptimizadorCodigoIntermedio
 from interprete import Interprete
 from generador_codigo_objeto import GeneradorCodigoObjeto
 
@@ -85,6 +86,13 @@ PROGRAMAS = {
         }
     }
 } fin''',
+
+    "6_optimizacion": '''INICIO {
+    entero a = 2 + 3;
+    entero b = a * 1;
+    entero c = b + 0;
+    imprimir(c);
+} FIN''',
 }
 
 
@@ -122,8 +130,15 @@ def analizar(nombre, codigo):
         gen.generar(ast)
         print("\n-- TAC (primeras 12 lineas) --")
         print("\n".join(gen.obtener_codigo().splitlines()[:12]))
+
+        # Optimizacion del codigo intermedio
+        opt = OptimizadorCodigoIntermedio()
+        instrucciones_opt = opt.optimizar(gen.obtener_instrucciones())
+        print("\n-- Optimizaciones aplicadas --")
+        for r in opt.reporte[:8]:
+            print("   ", r)
     except Exception as e:
-        print("Error TAC:", e)
+        print("Error TAC/optimizacion:", e)
 
     # Ejecucion (interprete)
     print("\n-- EJECUCION (interprete, max 30 iteraciones) --")

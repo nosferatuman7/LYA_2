@@ -1,7 +1,9 @@
 from analizador_semantico import AnalizadorSemantico
 from generador_codigo_intermedio import GeneradorCodigoIntermedio
+from optimizador_codigo_intermedio import OptimizadorCodigoIntermedio
 from interprete import Interprete
 from generador_codigo_objeto import GeneradorCodigoObjeto
+from exportador_resultados import ExportadorResultados
 
 from lexer import (
     tokens,
@@ -26,9 +28,11 @@ import os
 import difflib
 from ply.lex import LexToken
 
-# guarda el ultimo codigo objeto generado (para el boton "ver codigo objeto")
+# guarda los ultimos resultados generados (para los botones de codigo objeto y exportar)
 ultimo_codigo_objeto = ""
 ruta_codigo_objeto = ""
+ultimo_tac = ""
+ultimo_tac_opt = ""
 
 # ------------------------ listas de errores ------------------------
 
@@ -74,6 +78,9 @@ def analizar_codigo():
     procesar_funciones(contenido)
     tokens_para_tabla = clonar_tokens(contenido)
     procesar_tokens(tokens_para_tabla)
+
+    # 1.5 tabla de palabras reservadas (conteo de uso)
+    mostrar_tabla_palabras_reservadas(tokens_para_tabla)
 
     # 2. analisis sintactico
     resultado = None
@@ -121,16 +128,29 @@ def analizar_codigo():
     # 5. mostrar errores + tabla de simbolos
     mostrar_resultados()
 
-    # 5.5 generacion de codigo intermedio (TAC) solo si no hay errores
+    # 5.5 generacion de codigo intermedio (TAC) + optimizacion, solo si no hay errores
     if resultado and not errores_lexicos and not errores_sintacticos and not errores_semanticos:
+        global ultimo_tac, ultimo_tac_opt
         try:
             gen = GeneradorCodigoIntermedio()
             gen.generar(resultado)
             codigo_tac = gen.obtener_codigo()
-            salida_analizador.insert(tk.END, "--- codigo intermedio (TAC) ---")
-            salida_analizador.insert(tk.END, codigo_tac + "")
+            ultimo_tac = codigo_tac
+            salida_analizador.insert(tk.END, "\n--- codigo intermedio (TAC) ---\n")
+            salida_analizador.insert(tk.END, codigo_tac + "\n")
+
+            # optimizacion del codigo intermedio
+            opt = OptimizadorCodigoIntermedio()
+            instrucciones_opt = opt.optimizar(gen.obtener_instrucciones())
+            codigo_tac_opt = opt.formatear(instrucciones_opt)
+            ultimo_tac_opt = codigo_tac_opt
+            salida_analizador.insert(tk.END, "\n--- codigo intermedio optimizado ---\n")
+            salida_analizador.insert(tk.END, codigo_tac_opt + "\n")
+            salida_analizador.insert(tk.END, "\n--- optimizaciones aplicadas ---\n")
+            for r in opt.reporte:
+                salida_analizador.insert(tk.END, f"{r}\n")
         except Exception as e:
-            salida_analizador.insert(tk.END, f"--- codigo intermedio (TAC) --- x error al generar codigo intermedio: {e}")
+            salida_analizador.insert(tk.END, f"\n--- codigo intermedio (TAC) --- x error al generar codigo intermedio: {e}\n")
 
     # 6. ejecutar el programa con el INTERPRETE real (sobre el AST)
     if resultado and not errores_lexicos and not errores_sintacticos and not errores_semanticos:
@@ -161,6 +181,69 @@ def analizar_codigo():
             salida_analizador.insert(tk.END, f"[guardado en: {ruta_codigo_objeto}]\n")
         except Exception as e:
             salida_analizador.insert(tk.END, f"\n--- codigo objeto --- x error al generar: {e}\n")
+
+
+# --------- tabla de palabras reservadas (conteo) ---------
+
+def contar_palabras_reservadas(lista_de_tokens):
+    """Devuelve una lista (palabra, cantidad) con el conteo de palabras reservadas usadas."""
+    tipos_reservados = set(palabras_reservadas.values())
+    conteo = {}
+    for tok in lista_de_tokens:
+        if tok.type in tipos_reservados:
+            clave = str(tok.value)
+            conteo[clave] = conteo.get(clave, 0) + 1
+    return sorted(conteo.items(), key=lambda x: (-x[1], x[0]))
+
+
+def mostrar_tabla_palabras_reservadas(lista_de_tokens):
+    salida_analizador.insert(tk.END, "\n--- tabla de palabras reservadas ---\n")
+    conteo = contar_palabras_reservadas(lista_de_tokens)
+    if not conteo:
+        salida_analizador.insert(tk.END, "(no se usaron palabras reservadas)\n")
+        return
+    for palabra, cantidad in conteo:
+        salida_analizador.insert(tk.END, f"{palabra}: {cantidad}\n")
+
+
+# --------- exportacion de resultados ---------
+
+def exportar_resultados():
+    """Exporta tokens, palabras reservadas, tabla de simbolos, codigo intermedio
+    (y optimizado) y codigo objeto a un archivo Excel (o texto si no hay openpyxl)."""
+    codigo = editor_text.get("1.0", tk.END).strip()
+    if not codigo:
+        salida_analizador.insert(tk.END, "\n[info] no hay codigo que exportar.\n")
+        return
+
+    toks = clonar_tokens(codigo)
+    lista_tokens = []
+    for tok in toks:
+        col = encontrar_columna(lexer, tok)
+        lista_tokens.append((tok.type, str(tok.value), tok.lineno, col))
+
+    datos = {
+        "tokens": lista_tokens,
+        "palabras": contar_palabras_reservadas(toks),
+        "simbolos": list(tabla_simbolos),
+        "intermedio": ultimo_tac,
+        "intermedio_opt": ultimo_tac_opt,
+        "objeto": ultimo_codigo_objeto,
+    }
+
+    ruta_base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "resultados_exportados"
+    )
+    try:
+        ruta = ExportadorResultados().exportar(ruta_base, datos)
+        salida_analizador.insert(tk.END, f"\n[resultados exportados en: {ruta}]\n")
+        try:
+            os.startfile(ruta)
+        except Exception:
+            pass
+    except Exception as e:
+        salida_analizador.insert(tk.END, f"\nx error al exportar resultados: {e}\n")
 
 
 # --------- logica de tokens / tabla de simbolos ---------
@@ -609,6 +692,22 @@ btn_codigo_objeto = tk.Button(
     command=abrir_codigo_objeto,
 )
 btn_codigo_objeto.pack(side="left", padx=5)
+
+btn_exportar = tk.Button(
+    frame_botones,
+    text="exportar resultados",
+    font=("arial", 12, "bold"),
+    bg="#2196f3",
+    fg="black",
+    activebackground="#64b5f6",
+    activeforeground="black",
+    relief="raised",
+    bd=4,
+    padx=10,
+    pady=5,
+    command=exportar_resultados,
+)
+btn_exportar.pack(side="left", padx=5)
 
 # ---------- frame de salidas (dos columnas) ----------
 
