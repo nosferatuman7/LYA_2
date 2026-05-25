@@ -3,6 +3,7 @@ from generador_codigo_intermedio import GeneradorCodigoIntermedio
 from optimizador_codigo_intermedio import OptimizadorCodigoIntermedio
 from interprete import Interprete
 from generador_codigo_objeto import GeneradorCodigoObjeto
+from generador_ensamblador import GeneradorEnsamblador
 from exportador_resultados import ExportadorResultados
 
 from lexer import (
@@ -244,6 +245,69 @@ def exportar_resultados():
             pass
     except Exception as e:
         salida_analizador.insert(tk.END, f"\nx error al exportar resultados: {e}\n")
+
+
+# --------- generacion de .exe (codigo objeto de bajo nivel) ---------
+
+def generar_exe():
+    """Genera el codigo objeto de BAJO NIVEL (ensamblador x86-64), lo compila a un
+    ejecutable .exe (NASM + gcc) y lo ejecuta para mostrar las instrucciones.
+    Se basa en el codigo intermedio optimizado."""
+    import subprocess
+
+    fuente = ultimo_tac_opt or ultimo_tac
+    if not fuente:
+        salida_analizador.insert(tk.END, "\n[info] primero pulsa 'analizar' con un programa valido.\n")
+        return
+
+    lineas = [l for l in fuente.splitlines() if l.strip()]
+    carpeta = os.path.dirname(os.path.abspath(__file__))
+
+    # 1) generar el ensamblador (codigo objeto de bajo nivel)
+    asm = GeneradorEnsamblador().generar(lineas, "Codigo objeto - bajo nivel")
+    ruta_asm = os.path.join(carpeta, "codigo_objeto.asm")
+    with open(ruta_asm, "w", encoding="utf-8") as f:
+        f.write(asm)
+    salida_analizador.insert(tk.END, "\n--- codigo objeto de bajo nivel (ensamblador x86-64) ---\n")
+    salida_analizador.insert(tk.END, asm + "\n")
+    salida_analizador.insert(tk.END, f"[guardado en: {ruta_asm}]\n")
+
+    # 2) intentar ensamblar (NASM) y enlazar (gcc) para crear el .exe
+    ruta_obj = os.path.join(carpeta, "codigo_objeto.obj")
+    ruta_exe = os.path.join(carpeta, "codigo_objeto.exe")
+    try:
+        r1 = subprocess.run(
+            ["nasm", "-f", "win64", ruta_asm, "-o", ruta_obj],
+            capture_output=True, text=True
+        )
+        if r1.returncode != 0:
+            salida_analizador.insert(tk.END, f"\nx NASM fallo:\n{r1.stderr}\n")
+            return
+
+        r2 = subprocess.run(
+            ["gcc", ruta_obj, "-o", ruta_exe],
+            capture_output=True, text=True
+        )
+        if r2.returncode != 0:
+            salida_analizador.insert(tk.END, f"\nx gcc (enlazado) fallo:\n{r2.stderr}\n")
+            return
+
+        salida_analizador.insert(tk.END, f"\n[ejecutable generado: {ruta_exe}]\n")
+
+        # 3) ejecutar el .exe y mostrar las instrucciones
+        r3 = subprocess.run([ruta_exe], capture_output=True, text=True, timeout=20)
+        salida_analizador.insert(tk.END, "\n--- salida del ejecutable (.exe) ---\n")
+        salida_analizador.insert(tk.END, (r3.stdout or "") + "\n")
+    except FileNotFoundError:
+        salida_analizador.insert(
+            tk.END,
+            "\n[info] No se encontro NASM o gcc en el PATH.\n"
+            "  - Se genero 'codigo_objeto.asm' (codigo objeto de bajo nivel).\n"
+            "  - Instala NASM (nasm.us) y MinGW-w64, y ejecuta 'compilar_exe.bat', o\n"
+            "  - usa 'generar_exe_pyinstaller.bat' para crear el .exe desde el codigo Python.\n"
+        )
+    except Exception as e:
+        salida_analizador.insert(tk.END, f"\nx error al compilar/ejecutar el .exe: {e}\n")
 
 
 # --------- logica de tokens / tabla de simbolos ---------
@@ -708,6 +772,22 @@ btn_exportar = tk.Button(
     command=exportar_resultados,
 )
 btn_exportar.pack(side="left", padx=5)
+
+btn_exe = tk.Button(
+    frame_botones,
+    text="generar .exe (bajo nivel)",
+    font=("arial", 12, "bold"),
+    bg="#9c27b0",
+    fg="white",
+    activebackground="#ba68c8",
+    activeforeground="white",
+    relief="raised",
+    bd=4,
+    padx=10,
+    pady=5,
+    command=generar_exe,
+)
+btn_exe.pack(side="left", padx=5)
 
 # ---------- frame de salidas (dos columnas) ----------
 
