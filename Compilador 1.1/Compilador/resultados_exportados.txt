@@ -1,0 +1,286 @@
+============================================================
+RESULTADOS DEL COMPILADOR
+============================================================
+
+=== TOKENS ===
+TIPO                  VALOR                 LINEA   COLUMNA
+INICIO                INICIO                1       1
+LLAVE_A               {                     1       8
+ENTERO                entero                2       5
+ID                    velocidad             2       12
+ASIGNACION            =                     2       22
+NUMERO                10                    2       24
+PUNTOCOMA             ;                     2       26
+REAL_TIPO             real                  3       5
+ID                    tiempo                3       10
+ASIGNACION            =                     3       17
+REAL                  2.5                   3       19
+PUNTOCOMA             ;                     3       22
+CADENA_TIPO           cadena                4       5
+ID                    mensaje               4       12
+ASIGNACION            =                     4       20
+CADENA_TEXTO          hola mundo            4       22
+PUNTOCOMA             ;                     4       34
+FUNC                  funcion               5       5
+ID                    mover                 5       13
+PARENTESIS_A          (                     5       18
+ENTERO                entero                5       19
+ID                    v                     5       26
+PARENTESIS_B          )                     5       27
+LLAVE_A               {                     5       29
+SI                    si                    6       9
+PARENTESIS_A          (                     6       12
+ID                    v                     6       13
+MAYORQUE              >                     6       15
+NUMERO                0                     6       17
+PARENTESIS_B          )                     6       18
+LLAVE_A               {                     6       20
+IMPRIMIR              imprimir              7       13
+PARENTESIS_A          (                     7       21
+ID                    mensaje               7       22
+PARENTESIS_B          )                     7       29
+PUNTOCOMA             ;                     7       30
+LLAVE_C               }                     8       9
+LLAVE_C               }                     9       5
+ID                    mover                 10      5
+PARENTESIS_A          (                     10      10
+ID                    velocidad             10      11
+PARENTESIS_B          )                     10      20
+PUNTOCOMA             ;                     10      21
+LLAVE_C               }                     11      1
+FIN                   FIN                   11      3
+
+=== PALABRAS RESERVADAS (conteo) ===
+PALABRA               CANTIDAD
+entero                2
+FIN                   1
+INICIO                1
+cadena                1
+funcion               1
+imprimir              1
+real                  1
+si                    1
+
+=== TABLA DE SIMBOLOS ===
+nombre: mover, tipo: funcion, clase: funcion, valor: entero v, linea: None, columna: None
+nombre: velocidad, tipo: entero, clase: variable, valor: 10, linea: None, columna: None
+nombre: tiempo, tipo: real, clase: variable, valor: 2.5, linea: None, columna: None
+nombre: mensaje, tipo: cadena, clase: variable, valor: hola mundo, linea: None, columna: None
+nombre: v, tipo: entero, clase: parametro, valor: , linea: None, columna: None
+
+=== CODIGO INTERMEDIO ===
+  1.  velocidad = 10
+  2.  tiempo = 2.5
+  3.  mensaje = hola mundo
+  4.  func_mover:
+  5.  v = param_v
+  6.  if v <= 0 goto L_sino1
+  7.  print mensaje
+  8.  L_sino1:
+  9.  return
+ 10.  param velocidad
+ 11.  t1 = call mover, 1
+ 12.  halt
+
+=== CODIGO INTERMEDIO OPTIMIZADO ===
+  1.  velocidad = 10
+  2.  tiempo = 2.5
+  3.  mensaje = hola mundo
+  4.  func_mover:
+  5.  v = param_v
+  6.  if v <= 0 goto L_sino1
+  7.  print mensaje
+  8.  L_sino1:
+  9.  return
+ 10.  param velocidad
+ 11.  t1 = call mover, 1
+ 12.  halt
+
+=== CODIGO OBJETO (Python / Raspberry Pi) ===
+# -*- coding: utf-8 -*-
+# ==========================================================================
+#  CODIGO OBJETO GENERADO AUTOMATICAMENTE
+#  Destino: Raspberry Pi / Python 3
+#
+#  Este archivo es el "codigo objeto": el programa final, equivalente al
+#  programa fuente, listo para ejecutarse sobre la plataforma destino.
+#  Si la libreria gpiozero esta disponible (Raspberry Pi), controla el
+#  hardware real; en caso contrario, SIMULA cada dispositivo por consola,
+#  de modo que el programa siempre se puede ejecutar para demostrarlo.
+# ==========================================================================
+import time
+
+try:
+    import gpiozero
+    _HAY_GPIO = True
+except Exception:
+    _HAY_GPIO = False
+
+
+class Dispositivo:
+    """Clase base de los dispositivos del lenguaje."""
+
+    def __init__(self, nombre, **attrs):
+        self.nombre = nombre
+        self.attrs = attrs
+
+    def _attr(self, *nombres, defecto=None):
+        for n in nombres:
+            if n in self.attrs:
+                return self.attrs[n]
+        return defecto
+
+    def encender(self):
+        print("[%s] encender()" % self.nombre)
+
+    def apagar(self):
+        print("[%s] apagar()" % self.nombre)
+
+    def girarServo(self, grados):
+        print("[%s] girarServo(%s)" % (self.nombre, grados))
+
+    def girarMotor(self, velocidad):
+        print("[%s] girarMotor(%s)" % (self.nombre, velocidad))
+
+    def valor(self):
+        v = 0
+        print("[%s] valor() -> %s" % (self.nombre, v))
+        return v
+
+
+class Led(Dispositivo):
+    def __init__(self, nombre, **attrs):
+        super().__init__(nombre, **attrs)
+        self._dev = None
+        if _HAY_GPIO and self._attr("pin") is not None:
+            try:
+                self._dev = gpiozero.LED(self._attr("pin"))
+            except Exception:
+                self._dev = None
+
+    def encender(self):
+        if self._dev:
+            self._dev.on()
+        print("[led %s] encender()" % self.nombre)
+
+    def apagar(self):
+        if self._dev:
+            self._dev.off()
+        print("[led %s] apagar()" % self.nombre)
+
+
+class Buzzer(Dispositivo):
+    def __init__(self, nombre, **attrs):
+        super().__init__(nombre, **attrs)
+        self._dev = None
+        if _HAY_GPIO and self._attr("pin") is not None:
+            try:
+                self._dev = gpiozero.Buzzer(self._attr("pin"))
+            except Exception:
+                self._dev = None
+
+    def encender(self):
+        if self._dev:
+            self._dev.on()
+        print("[buzzer %s] encender()" % self.nombre)
+
+    def apagar(self):
+        if self._dev:
+            self._dev.off()
+        print("[buzzer %s] apagar()" % self.nombre)
+
+
+class Servomotor(Dispositivo):
+    def __init__(self, nombre, **attrs):
+        super().__init__(nombre, **attrs)
+        self._dev = None
+        if _HAY_GPIO and self._attr("pin") is not None:
+            try:
+                self._dev = gpiozero.AngularServo(self._attr("pin"))
+            except Exception:
+                self._dev = None
+
+    def girarServo(self, grados):
+        if self._dev:
+            try:
+                self._dev.angle = grados
+            except Exception:
+                pass
+        print("[servo %s] girarServo(%s)" % (self.nombre, grados))
+
+
+class MotorCC(Dispositivo):
+    def __init__(self, nombre, **attrs):
+        super().__init__(nombre, **attrs)
+        self._dev = None
+        if _HAY_GPIO and self._attr("in1") is not None and self._attr("in2") is not None:
+            try:
+                self._dev = gpiozero.Motor(forward=self._attr("in1"),
+                                           backward=self._attr("in2"))
+            except Exception:
+                self._dev = None
+
+    def girarMotor(self, velocidad):
+        if self._dev:
+            try:
+                v = max(-1.0, min(1.0, velocidad / 255.0))
+                if v >= 0:
+                    self._dev.forward(v)
+                else:
+                    self._dev.backward(-v)
+            except Exception:
+                pass
+        print("[motor %s] girarMotor(%s)" % (self.nombre, velocidad))
+
+    def apagar(self):
+        if self._dev:
+            try:
+                self._dev.stop()
+            except Exception:
+                pass
+        print("[motor %s] apagar()" % self.nombre)
+
+
+class Sensor(Dispositivo):
+    def valor(self):
+        if _HAY_GPIO and self._attr("pin") is not None:
+            try:
+                d = gpiozero.InputDevice(self._attr("pin"))
+                v = int(d.value)
+            except Exception:
+                v = 0
+        else:
+            import random
+            v = random.randint(0, 1023)
+        print("[sensor %s] valor() -> %s" % (self.nombre, v))
+        return v
+
+
+class SensorUltrasonico(Sensor):
+    pass
+
+
+class SensorColor(Sensor):
+    pass
+
+
+class SensorToque(Sensor):
+    pass
+
+
+class SensorGiro(Sensor):
+    pass
+
+
+# --------------------------------------------------------------------------
+#  Programa traducido desde el lenguaje fuente
+# --------------------------------------------------------------------------
+velocidad = 10
+tiempo = 2.5
+mensaje = "hola mundo"
+
+def mover(v):
+    if (v > 0):
+        print(mensaje)
+
+mover(velocidad)
