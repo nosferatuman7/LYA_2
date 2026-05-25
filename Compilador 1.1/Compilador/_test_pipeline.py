@@ -21,6 +21,7 @@ from generador_codigo_intermedio import GeneradorCodigoIntermedio
 from optimizador_codigo_intermedio import OptimizadorCodigoIntermedio
 from interprete import Interprete
 from generador_codigo_objeto import GeneradorCodigoObjeto
+from generador_ensamblador import GeneradorEnsamblador
 
 
 PROGRAMAS = {
@@ -137,8 +138,15 @@ def analizar(nombre, codigo):
         print("\n-- Optimizaciones aplicadas --")
         for r in opt.reporte[:8]:
             print("   ", r)
+
+        # Codigo objeto de bajo nivel (ensamblador)
+        lineas_tac = [l for l in opt.formatear(instrucciones_opt).splitlines() if l.strip()]
+        asm = GeneradorEnsamblador().generar(lineas_tac, "Codigo objeto - bajo nivel")
+        ok_asm = ("section .text" in asm) and ("main:" in asm) and ("call    puts" in asm)
+        print("\n-- Ensamblador generado --")
+        print("   estructura valida:", ok_asm, "| lineas:", len(asm.splitlines()))
     except Exception as e:
-        print("Error TAC/optimizacion:", e)
+        print("Error TAC/optimizacion/asm:", e)
 
     # Ejecucion (interprete)
     print("\n-- EJECUCION (interprete, max 30 iteraciones) --")
