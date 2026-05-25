@@ -1,28 +1,30 @@
-// ==================================================
-//  CÓDIGO OBJETO OPTIMIZADO DESDE INTERMEDIO (TAC)
-// ==================================================
+// ==========================================================================
+//  CODIGO OBJETO GENERADO AUTOMATICAMENTE
+//  Destino: Arduino (sketch .ino -> compilar a .hex con avr-gcc / IDE)
+//
+//  Para compilar directamente a .hex desde Python:
+//    gen = GeneradorCodigoObjeto()
+//    ruta_hex = gen.compilar_hex(ast)   # requiere arduino-cli en PATH
+//
+//  O con arduino-cli manualmente:
+//    arduino-cli compile --fqbn arduino:avr:uno sketch/ --output-dir out/
+// ==========================================================================
 
 
-void mover();
-
-
-void mover() {
-    v = param_v;
-    auto txt = param_txt;
-    if (v <= 0) goto L_sino1;
-    Serial.println(txt);
-    L_sino1:
+void mover(int v) {
+    if ((v > 0)) {
+        Serial.println(mensaje);
+    }
 }
+
 
 void setup() {
     Serial.begin(9600);
 }
 
 void loop() {
-    velocidad = 10;
-    mensaje = hola mundo;
-    // Parámetro cargado: velocidad
-    // Parámetro cargado: mensaje
-    auto t1 = mover();
-    // Fin de la ejecución TAC
+int velocidad = 10;
+float tiempo = 2.5;
+String mensaje = "hola mundo";
+mover(velocidad);
 }
