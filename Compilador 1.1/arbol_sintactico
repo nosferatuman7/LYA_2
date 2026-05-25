@@ -10,6 +10,86 @@ digraph {
 	n2 -> n3
 	n4 [label=velocidad fillcolor="#D0E6FA" shape=ellipse style=filled]
 	n2 -> n4
-	n5 [label=";" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n5 [label="=" fillcolor="#D0E6FA" shape=ellipse style=filled]
 	n2 -> n5
+	n6 [label=constante fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n2 -> n6
+	n7 [label=10 fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n6 -> n7
+	n8 [label=";" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n2 -> n8
+	n9 [label=declaracion fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n1 -> n9
+	n10 [label=real fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n9 -> n10
+	n11 [label=tiempo fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n9 -> n11
+	n12 [label="=" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n9 -> n12
+	n13 [label=constante fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n9 -> n13
+	n14 [label=2.5 fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n13 -> n14
+	n15 [label=";" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n9 -> n15
+	n16 [label=declaracion fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n1 -> n16
+	n17 [label=cadena fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n16 -> n17
+	n18 [label=mensaje fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n16 -> n18
+	n19 [label="=" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n16 -> n19
+	n20 [label=constante fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n16 -> n20
+	n21 [label="hola mundo" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n20 -> n21
+	n22 [label=";" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n16 -> n22
+	n23 [label=funcion fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n1 -> n23
+	n24 [label=mover fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n23 -> n24
+	n25 [label=parametros fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n23 -> n25
+	n26 [label=parametro fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n25 -> n26
+	n27 [label=entero fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n26 -> n27
+	n28 [label=v fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n26 -> n28
+	n29 [label=bloque fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n23 -> n29
+	n30 [label=si fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n29 -> n30
+	n31 [label=binop fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n30 -> n31
+	n32 [label=constante fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n31 -> n32
+	n33 [label=v fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n32 -> n33
+	n34 [label=">" fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n31 -> n34
+	n35 [label=constante fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n31 -> n35
+	n36 [label=0 fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n35 -> n36
+	n37 [label=bloque fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n30 -> n37
+	n38 [label=imprimir fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n37 -> n38
+	n39 [label=constante fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n38 -> n39
+	n40 [label=mensaje fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n39 -> n40
+	n41 [label=llamada_funcion fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n1 -> n41
+	n42 [label=mover fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n41 -> n42
+	n43 [label=argumentos fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n41 -> n43
+	n44 [label=constante fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n43 -> n44
+	n45 [label=velocidad fillcolor="#D0E6FA" shape=ellipse style=filled]
+	n44 -> n45
 }
