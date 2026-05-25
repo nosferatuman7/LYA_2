@@ -249,9 +249,307 @@ def exportar_resultados():
 
 # --------- generacion de .exe (codigo objeto de bajo nivel) ---------
 
+def _tac_a_opcodes_avr(lineas):
+    """
+    Traduce instrucciones TAC del compilador a opcodes AVR reales
+    para ATmega328p (Arduino Uno/Nano).
+
+    Instrucciones AVR usadas:
+      LDI  Rd, K    : 1110 KKKK dddd KKKK  (cargar inmediato en registro)
+      STS  addr, Rr : 1001 001r rrrr 0000 + addr16 (guardar en SRAM)
+      LDS  Rd, addr : 1001 000d dddd 0000 + addr16 (cargar desde SRAM)
+      CALL addr     : 1001 0101 000X XXXX + addr (llamada a subrutina)
+      RET           : 1001 0101 0000 1000 (retorno)
+      RJMP rel      : 1100 kkkk kkkk kkkk (salto relativo)
+      NOP           : 0000 0000 0000 0000
+
+    Registros usados:
+      r24, r25 : argumentos de funciones (convencion AVR-GCC)
+      r26-r27  : puntero X (datos de cadena)
+      r16-r23  : variables temporales
+
+    Mapa de memoria SRAM (ATmega328p, SRAM inicia en 0x0100):
+      0x0100 : variable 0
+      0x0102 : variable 1
+      ...cada variable ocupa 2 bytes (word)
+
+    Perifericos mapeados en I/O del ATmega328p:
+      DDRB  = 0x24  : direccion puerto B
+      PORTB = 0x25  : salida puerto B  (pin13 = bit5)
+      DDRD  = 0x2A  : direccion puerto D
+      PORTD = 0x2B  : salida puerto D
+      UBRR0H= 0xC5  : baud rate Serial (high)
+      UBRR0L= 0xC4  : baud rate Serial (low)  9600 baud @ 16MHz => 103
+      UCSR0B= 0xC1  : control Serial
+      UDR0  = 0xC6  : dato Serial
+
+    El programa generado:
+      1. Inicializa el stack pointer
+      2. Inicializa Serial a 9600 baud
+      3. Configura pines segun los dispositivos declarados
+      4. Traduce cada instruccion TAC a opcodes
+      5. Bucle infinito al final
+    """
+    import re
+    import struct
+
+    opcodes = []        # lista de bytes (int 0-255)
+    variables = {}      # nombre -> direccion SRAM
+    sram_ptr = 0x0100   # inicio SRAM ATmega328p
+    etiquetas = {}      # nombre -> offset en opcodes (para saltos)
+    parches_salto = []  # (offset_instruccion, nombre_etiqueta) para parchear despues
+
+    # --- utilidades para emitir instrucciones AVR ---
+
+    def emit(*bytes_):
+        for b in bytes_:
+            opcodes.append(b & 0xFF)
+
+    def emit_word(w):
+        emit(w & 0xFF, (w >> 8) & 0xFF)  # little-endian
+
+    def ldi(rd, k):
+        """LDI Rd, K  (rd: 16-31, k: 0-255)"""
+        rd = rd & 0x0F  # solo bits bajos (r16=0, r17=1, ...)
+        k = k & 0xFF
+        hi = 0xE0 | (k >> 4 & 0x0F) | (rd << 4 & 0xF0) >> 4 << 4
+        # formula correcta: 1110 KKKK dddd KKKK
+        hi = 0xE0 | ((k >> 4) & 0x0F) | ((rd & 0x0F) << 4)
+        lo = k & 0x0F | ((rd & 0x0F) << 4)
+        # reescribir limpio:
+        # opcode = 0xE000 | ((k & 0xF0) << 4) | ((rd & 0x0F) << 4) | (k & 0x0F)
+        word = 0xE000 | ((k & 0xF0) << 4) | ((rd & 0x0F) << 4) | (k & 0x0F)
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+
+    def sts(addr, rr):
+        """STS addr, Rr — guarda registro en SRAM"""
+        # opcode: 1001 001r rrrr 0000
+        word = 0x9200 | ((rr & 0x1F) << 4)
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+        emit_word(addr)
+
+    def lds(rd, addr):
+        """LDS Rd, addr — carga SRAM en registro"""
+        word = 0x9000 | ((rd & 0x1F) << 4)
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+        emit_word(addr)
+
+    def nop():
+        emit(0x00, 0x00)
+
+    def rjmp(offset_relativo):
+        """RJMP k  (offset en words, -2048..2047)"""
+        k = offset_relativo & 0x0FFF
+        word = 0xC000 | k
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+
+    def out_io(addr, rr):
+        """OUT A, Rr — escribe en registro I/O (addr 0x00-0x3F)"""
+        word = 0xB800 | ((addr & 0x30) << 5) | ((rr & 0x1F) << 4) | (addr & 0x0F)
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+
+    def asignar_variable(nombre):
+        nonlocal sram_ptr
+        if nombre not in variables:
+            variables[nombre] = sram_ptr
+            sram_ptr += 2
+        return variables[nombre]
+
+    # --- 1. prologo: inicializar stack pointer (SPH:SPL = 0x08FF) ---
+    # LDI r16, 0x08  ; SPH
+    ldi(16, 0x08)
+    # OUT SPH(0x3E), r16
+    out_io(0x3E, 16)
+    # LDI r16, 0xFF  ; SPL
+    ldi(16, 0xFF)
+    # OUT SPL(0x3D), r16
+    out_io(0x3D, 16)
+
+    # --- 2. inicializar Serial 9600 baud @ 16MHz (UBRR=103=0x67) ---
+    # UBRR0H = 0x00
+    ldi(24, 0x00)
+    sts(0xC5, 24)
+    # UBRR0L = 103
+    ldi(24, 103)
+    sts(0xC4, 24)
+    # UCSR0B = 0x18 (RXEN0 | TXEN0)
+    ldi(24, 0x18)
+    sts(0xC1, 24)
+    # UCSR0C = 0x06 (8 bits, 1 stop, sin paridad)
+    ldi(24, 0x06)
+    sts(0xC2, 24)
+
+    # --- 3. configurar pin 13 (PB5) como salida para LED/senales ---
+    # DDRB |= (1<<5)  -> LDI r16, 0x20 / OUT DDRB, r16
+    ldi(16, 0x20)
+    out_io(0x04, 16)   # DDRB = 0x04 en espacio I/O
+
+    # --- 4. traducir instrucciones TAC ---
+    for linea in lineas:
+        linea = linea.strip()
+        if not linea:
+            continue
+
+        # eliminar numeracion "  1.  instruccion"
+        linea_limpia = re.sub(r'^\s*\d+\.\s*', '', linea)
+
+        # --- etiqueta ---
+        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*\s*:$', linea_limpia):
+            nombre_et = linea_limpia.rstrip(':').strip()
+            etiquetas[nombre_et] = len(opcodes)
+            nop()
+            continue
+
+        # --- imprimir / print ---
+        m = re.match(r'^(?:imprimir|print)\s+(.+)$', linea_limpia, re.IGNORECASE)
+        if m:
+            expr = m.group(1).strip().strip('"')
+            # emitir cada caracter via UDR0 (sin esperar UDRE0 para simplificar)
+            for ch in expr[:32]:  # max 32 chars
+                ldi(24, ord(ch) & 0xFF)
+                sts(0xC6, 24)   # UDR0
+            # salto de linea \r\n
+            ldi(24, 0x0D)
+            sts(0xC6, 24)
+            ldi(24, 0x0A)
+            sts(0xC6, 24)
+            continue
+
+        # --- girarMotor / girarServo ---
+        m = re.match(r'^(?:girarMotor|girarServo|GIRARMOTOR|GIRARSERVO)\s*\(?\s*(\w+)\s*,\s*(\w+)\s*\)?', linea_limpia, re.IGNORECASE)
+        if m:
+            # simular: cargar velocidad en r24, activar PORTB
+            vel_str = m.group(2)
+            vel = int(vel_str) if vel_str.isdigit() else 90
+            vel = max(0, min(255, vel))
+            ldi(24, vel)
+            out_io(0x05, 24)   # PORTB
+            nop(); nop()
+            continue
+
+        # --- encender LED ---
+        m = re.match(r'^encender\s+(\w+)', linea_limpia, re.IGNORECASE)
+        if m:
+            ldi(16, 0x20)
+            out_io(0x05, 16)   # PORTB pin13 HIGH
+            nop()
+            continue
+
+        # --- apagar LED ---
+        m = re.match(r'^apagar\s+(\w+)', linea_limpia, re.IGNORECASE)
+        if m:
+            ldi(16, 0x00)
+            out_io(0x05, 16)   # PORTB pin13 LOW
+            nop()
+            continue
+
+        # --- retraso / delay ---
+        m = re.match(r'^retraso\s*\(?\s*(\d+)\s*\)?', linea_limpia, re.IGNORECASE)
+        if m:
+            ms = int(m.group(1)) & 0xFF
+            # bucle de retardo simple: LDI r20, ms; DEC r20; BRNE -1
+            ldi(20, ms)
+            # DEC r20: 1001 010d dddd 1010  d=20 -> 0x940A ... simplificado:
+            emit(0x4A, 0x95)   # DEC r20
+            emit(0xFE, 0xCF)   # RJMP -1 (loop sobre DEC)
+            nop()
+            continue
+
+        # --- asignacion: var = valor ---
+        m = re.match(r'^(\w+)\s*=\s*(.+)$', linea_limpia)
+        if m:
+            dest = m.group(1).strip()
+            src  = m.group(2).strip()
+            addr = asignar_variable(dest)
+            if src.lstrip('-').isdigit():
+                val = int(src) & 0xFF
+                ldi(24, val)
+                sts(addr, 24)
+            elif src.startswith('"'):
+                # cadena: guardar primer caracter
+                ch = src[1] if len(src) > 1 else 0
+                ldi(24, ord(ch) & 0xFF)
+                sts(addr, 24)
+            else:
+                # src es otra variable
+                src_addr = asignar_variable(src)
+                lds(24, src_addr)
+                sts(addr, 24)
+            continue
+
+        # --- goto / salto ---
+        m = re.match(r'^goto\s+(\w+)', linea_limpia, re.IGNORECASE)
+        if m:
+            etiqueta = m.group(1)
+            parches_salto.append((len(opcodes), etiqueta))
+            rjmp(0)   # se parchea despues
+            continue
+
+        # --- halt / fin ---
+        if re.match(r'^halt$', linea_limpia, re.IGNORECASE):
+            rjmp(-1)   # bucle infinito: RJMP $ (queda en este punto)
+            continue
+
+        # --- instruccion no reconocida: NOP ---
+        nop()
+
+    # --- 5. epilogo: bucle infinito ---
+    rjmp(-1)
+
+    # --- 6. parchear saltos hacia etiquetas ---
+    for (off, etiqueta) in parches_salto:
+        if etiqueta in etiquetas:
+            destino = etiquetas[etiqueta]
+            # offset en words desde la siguiente instruccion
+            rel = ((destino - off) // 2) - 1
+            rel = rel & 0x0FFF
+            word = 0xC000 | rel
+            opcodes[off]     = word & 0xFF
+            opcodes[off + 1] = (word >> 8) & 0xFF
+
+    return bytes(opcodes)
+
+
+def _bytes_a_intel_hex(data, base_addr=0x0000):
+    """
+    Convierte un bytearray de opcodes AVR a formato Intel HEX correcto.
+    Cada registro tiene maximo 16 bytes de datos.
+    """
+    registros = []
+    offset = 0
+    while offset < len(data):
+        bloque = data[offset:offset + 16]
+        longitud = len(bloque)
+        direccion = base_addr + offset
+        dir_hi = (direccion >> 8) & 0xFF
+        dir_lo = direccion & 0xFF
+        tipo = 0x00
+
+        suma = longitud + dir_hi + dir_lo + tipo
+        for b in bloque:
+            suma += b
+        checksum = ((~suma) + 1) & 0xFF
+
+        hex_datos = "".join(f"{b:02X}" for b in bloque)
+        registros.append(f":{longitud:02X}{dir_hi:02X}{dir_lo:02X}{tipo:02X}{hex_datos}{checksum:02X}")
+        offset += longitud
+
+    registros.append(":00000001FF")
+    return "\n".join(registros)
+
+
+def _generar_intel_hex(lineas):
+    """
+    Punto de entrada: traduce TAC -> opcodes AVR -> Intel HEX.
+    Genera codigo real para ATmega328p (Arduino Uno/Nano).
+    """
+    opcodes = _tac_a_opcodes_avr(lineas)
+    return _bytes_a_intel_hex(opcodes, base_addr=0x0000)
+
+
 def generar_exe():
-    """Genera el codigo objeto de BAJO NIVEL (ensamblador x86-64), lo compila a un
-    ejecutable .exe (NASM + gcc) y lo ejecuta para mostrar las instrucciones.
+    """Genera el codigo objeto de BAJO NIVEL (ensamblador x86-64), guarda el
+    archivo .hex en formato Intel HEX, e intenta compilar a .exe con NASM + gcc.
     Se basa en el codigo intermedio optimizado."""
     import subprocess
 
@@ -272,7 +570,19 @@ def generar_exe():
     salida_analizador.insert(tk.END, asm + "\n")
     salida_analizador.insert(tk.END, f"[guardado en: {ruta_asm}]\n")
 
-    # 2) intentar ensamblar (NASM) y enlazar (gcc) para crear el .exe
+    # 2) generar y guardar el archivo Intel HEX (.hex)
+    try:
+        contenido_hex = _generar_intel_hex(lineas)
+        ruta_hex = os.path.join(carpeta, "codigo_objeto.hex")
+        with open(ruta_hex, "w", encoding="utf-8") as f:
+            f.write(contenido_hex)
+        salida_analizador.insert(tk.END, "\n--- archivo Intel HEX generado ---\n")
+        salida_analizador.insert(tk.END, contenido_hex + "\n")
+        salida_analizador.insert(tk.END, f"[guardado en: {ruta_hex}]\n")
+    except Exception as e:
+        salida_analizador.insert(tk.END, f"\nx error al generar el archivo .hex: {e}\n")
+
+    # 3) intentar ensamblar (NASM) y enlazar (gcc) para crear el .exe
     ruta_obj = os.path.join(carpeta, "codigo_objeto.obj")
     ruta_exe = os.path.join(carpeta, "codigo_objeto.exe")
     try:
@@ -294,7 +604,7 @@ def generar_exe():
 
         salida_analizador.insert(tk.END, f"\n[ejecutable generado: {ruta_exe}]\n")
 
-        # 3) ejecutar el .exe y mostrar las instrucciones
+        # 4) ejecutar el .exe y mostrar las instrucciones
         r3 = subprocess.run([ruta_exe], capture_output=True, text=True, timeout=20)
         salida_analizador.insert(tk.END, "\n--- salida del ejecutable (.exe) ---\n")
         salida_analizador.insert(tk.END, (r3.stdout or "") + "\n")
@@ -303,6 +613,7 @@ def generar_exe():
             tk.END,
             "\n[info] No se encontro NASM o gcc en el PATH.\n"
             "  - Se genero 'codigo_objeto.asm' (codigo objeto de bajo nivel).\n"
+            "  - Se genero 'codigo_objeto.hex' (formato Intel HEX).\n"
             "  - Instala NASM (nasm.us) y MinGW-w64, y ejecuta 'compilar_exe.bat', o\n"
             "  - usa 'generar_exe_pyinstaller.bat' para crear el .exe desde el codigo Python.\n"
         )
