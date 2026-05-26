@@ -348,6 +348,57 @@ def _tac_a_opcodes_avr(lineas):
         word = 0xB800 | ((addr & 0x30) << 5) | ((rr & 0x1F) << 4) | (addr & 0x0F)
         emit(word & 0xFF, (word >> 8) & 0xFF)
 
+    def dec(rd):
+        """DEC Rd  — 1001 010d dddd 1010"""
+        word = 0x9400 | ((rd & 0x1F) << 4) | 0x0A
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+
+    def sbiw(rd, k):
+        """SBIW Rd, K — resta inmediato a par de registros (solo r24/26/28/30)."""
+        dd = {24: 0, 26: 1, 28: 2, 30: 3}[rd]
+        word = 0x9700 | (((k >> 4) & 0x03) << 6) | (dd << 4) | (k & 0x0F)
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+
+    def sbrs(rr, b):
+        """SBRS Rr, b — salta la siguiente instruccion si el bit b de Rr esta en 1."""
+        word = 0xFE00 | ((rr & 0x1F) << 4) | (b & 0x07)
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+
+    def brne(destino_byte):
+        """BRNE k — salta a 'destino_byte' (offset en bytes dentro de opcodes) si Z=0."""
+        aqui = len(opcodes)
+        rel = ((destino_byte - aqui) // 2) - 1   # offset en words desde la sig. instr.
+        word = 0xF401 | ((rel & 0x7F) << 3)
+        emit(word & 0xFF, (word >> 8) & 0xFF)
+
+    def serial_envia_r24():
+        """Envia el byte que esta en r24 por Serial, ESPERANDO a que el
+        registro de transmision este vacio (UDRE0, bit 5 de UCSR0A=0xC0).
+        Sin esta espera se pierden caracteres (bug original)."""
+        inicio_lds = len(opcodes)
+        lds(25, 0xC0)          # LDS r25, UCSR0A
+        sbrs(25, 5)            # SBRS r25, 5  -> salta el RJMP si UDRE0=1 (listo)
+        aqui_rjmp = len(opcodes)
+        rel = ((inicio_lds - aqui_rjmp) // 2) - 1
+        rjmp(rel)              # RJMP atras: reintenta la lectura hasta estar listo
+        sts(0xC6, 24)          # STS UDR0, r24  -> transmite el byte
+
+    def delay_ms(ms):
+        """Retardo por software que SI TERMINA (el original era un bucle infinito).
+        Aproximado a 'ms' milisegundos @16MHz mediante doble bucle de conteo."""
+        ms = max(1, min(int(ms), 65535))
+        INNER = 4000                       # ~1 ms: (sbiw+brne)=4 ciclos -> 16000/4
+        ldi(26, ms & 0xFF)                 # r26:r27 = contador externo (ms)
+        ldi(27, (ms >> 8) & 0xFF)
+        externo = len(opcodes)
+        ldi(24, INNER & 0xFF)              # r24:r25 = contador interno (~1 ms)
+        ldi(25, (INNER >> 8) & 0xFF)
+        interno = len(opcodes)
+        sbiw(24, 1)                        # interno--
+        brne(interno)                      # repetir hasta r24:r25 == 0
+        sbiw(26, 1)                        # externo--
+        brne(externo)                      # repetir hasta r26:r27 == 0
+
     def asignar_variable(nombre):
         nonlocal sram_ptr
         if nombre not in variables:
@@ -404,15 +455,15 @@ def _tac_a_opcodes_avr(lineas):
         m = re.match(r'^(?:imprimir|print)\s+(.+)$', linea_limpia, re.IGNORECASE)
         if m:
             expr = m.group(1).strip().strip('"')
-            # emitir cada caracter via UDR0 (sin esperar UDRE0 para simplificar)
+            # emitir cada caracter via UDR0 ESPERANDO UDRE0 (no se pierden chars)
             for ch in expr[:32]:  # max 32 chars
                 ldi(24, ord(ch) & 0xFF)
-                sts(0xC6, 24)   # UDR0
+                serial_envia_r24()
             # salto de linea \r\n
             ldi(24, 0x0D)
-            sts(0xC6, 24)
+            serial_envia_r24()
             ldi(24, 0x0A)
-            sts(0xC6, 24)
+            serial_envia_r24()
             continue
 
         # --- girarMotor / girarServo ---
@@ -446,13 +497,8 @@ def _tac_a_opcodes_avr(lineas):
         # --- retraso / delay ---
         m = re.match(r'^retraso\s*\(?\s*(\d+)\s*\)?', linea_limpia, re.IGNORECASE)
         if m:
-            ms = int(m.group(1)) & 0xFF
-            # bucle de retardo simple: LDI r20, ms; DEC r20; BRNE -1
-            ldi(20, ms)
-            # DEC r20: 1001 010d dddd 1010  d=20 -> 0x940A ... simplificado:
-            emit(0x4A, 0x95)   # DEC r20
-            emit(0xFE, 0xCF)   # RJMP -1 (loop sobre DEC)
-            nop()
+            # retardo REAL que termina (antes era un bucle infinito: RJMP sin BRNE)
+            delay_ms(int(m.group(1)))
             continue
 
         # --- asignacion: var = valor ---
@@ -510,40 +556,79 @@ def _tac_a_opcodes_avr(lineas):
     return bytes(opcodes)
 
 
+# Flash USABLE del ATmega328P (Arduino Uno/Nano): 32 KB menos el bootloader.
+FLASH_ATMEGA328P = 32 * 1024 - 512   # 32256 bytes
+
+def _intel_hex_checksum(byte_list):
+    """Checksum Intel HEX: complemento a dos de la suma de los bytes."""
+    return ((~sum(byte_list)) + 1) & 0xFF
+
+
 def _bytes_a_intel_hex(data, base_addr=0x0000):
     """
-    Convierte un bytearray de opcodes AVR a formato Intel HEX correcto.
-    Cada registro tiene maximo 16 bytes de datos.
+    Convierte un bytearray de opcodes AVR a formato Intel HEX CORRECTO.
+
+    Cada registro de datos tiene como maximo 16 bytes. El campo de direccion
+    de un registro de datos es de SOLO 16 bits (0x0000-0xFFFF); para direccionar
+    mas alla de 64 KB se emiten registros 'Extended Linear Address' (tipo 0x04)
+    que fijan los 16 bits altos. Sin esto, la direccion se desbordaba y los datos
+    a partir de 64 KB se escribian encima de los primeros (bug original).
     """
     registros = []
+    upper = 0                       # parte alta de la direccion (bits 16+) ya seleccionada
     offset = 0
-    while offset < len(data):
-        bloque = data[offset:offset + 16]
-        longitud = len(bloque)
+    n = len(data)
+    while offset < n:
         direccion = base_addr + offset
-        dir_hi = (direccion >> 8) & 0xFF
-        dir_lo = direccion & 0xFF
-        tipo = 0x00
+        hi16 = (direccion >> 16) & 0xFFFF
+        if hi16 != upper:
+            # registro Extended Linear Address (tipo 04): fija los 16 bits altos
+            ela = [0x02, 0x00, 0x00, 0x04, (hi16 >> 8) & 0xFF, hi16 & 0xFF]
+            registros.append(":" + "".join(f"{b:02X}" for b in ela)
+                             + f"{_intel_hex_checksum(ela):02X}")
+            upper = hi16
 
-        suma = longitud + dir_hi + dir_lo + tipo
-        for b in bloque:
-            suma += b
-        checksum = ((~suma) + 1) & 0xFF
+        addr16 = direccion & 0xFFFF
+        # un registro no debe cruzar el limite de 64 KB
+        max_en_bloque = 0x10000 - addr16
+        longitud = min(16, n - offset, max_en_bloque)
+        bloque = data[offset:offset + longitud]
 
+        dir_hi = (addr16 >> 8) & 0xFF
+        dir_lo = addr16 & 0xFF
+        cuerpo = [longitud, dir_hi, dir_lo, 0x00] + list(bloque)
         hex_datos = "".join(f"{b:02X}" for b in bloque)
-        registros.append(f":{longitud:02X}{dir_hi:02X}{dir_lo:02X}{tipo:02X}{hex_datos}{checksum:02X}")
+        registros.append(
+            f":{longitud:02X}{dir_hi:02X}{dir_lo:02X}00{hex_datos}"
+            f"{_intel_hex_checksum(cuerpo):02X}"
+        )
         offset += longitud
 
-    registros.append(":00000001FF")
+    registros.append(":00000001FF")     # registro de fin de archivo
     return "\n".join(registros)
 
 
-def _generar_intel_hex(lineas):
+def _generar_intel_hex(lineas, flash_max=FLASH_ATMEGA328P):
     """
     Punto de entrada: traduce TAC -> opcodes AVR -> Intel HEX.
     Genera codigo real para ATmega328p (Arduino Uno/Nano).
+
+    Si 'flash_max' no es None y el programa no cabe en la flash, lanza
+    ValueError con un mensaje claro (evita generar un .hex que la placa no
+    puede almacenar entero: era la causa de 'solo sube una parte').
     """
     opcodes = _tac_a_opcodes_avr(lineas)
+    if flash_max is not None and len(opcodes) > flash_max:
+        raise ValueError(
+            f"El programa ocupa {len(opcodes)} bytes de codigo, pero la flash "
+            f"usable del ATmega328P (Arduino Uno/Nano) es de ~{flash_max} bytes "
+            f"(32 KB menos el bootloader): NO CABE en la placa.\n"
+            f"   Recuerda: el .hex es texto ASCII y pesa ~2.9x mas que el binario, "
+            f"asi que un .hex de ~{len(opcodes)*29//10} bytes equivale a "
+            f"{len(opcodes)} bytes reales de flash.\n"
+            f"   Soluciones: reduce el programa, o usa una placa con mas flash "
+            f"(p.ej. Arduino Mega 2560, 256 KB) llamando con flash_max mayor o None."
+        )
     return _bytes_a_intel_hex(opcodes, base_addr=0x0000)
 
 
@@ -579,6 +664,19 @@ def generar_exe():
         salida_analizador.insert(tk.END, "\n--- archivo Intel HEX generado ---\n")
         salida_analizador.insert(tk.END, contenido_hex + "\n")
         salida_analizador.insert(tk.END, f"[guardado en: {ruta_hex}]\n")
+
+        # informe de tamano: aclara la confusion '.hex grande vs flash escrita'
+        n_bin = len(_tac_a_opcodes_avr(lineas))
+        n_hex = len(contenido_hex)
+        pct = 100.0 * n_bin / FLASH_ATMEGA328P
+        salida_analizador.insert(
+            tk.END,
+            f"\n[tamano del programa: {n_bin} bytes de flash "
+            f"({pct:.1f}% de los {FLASH_ATMEGA328P} bytes usables del ATmega328P)]\n"
+            f"[el archivo .hex pesa {n_hex} bytes de TEXTO ASCII (~2.9x el binario); "
+            f"avrdude graba y reporta los {n_bin} bytes binarios reales, "
+            f"no el tamano del .hex]\n"
+        )
     except Exception as e:
         salida_analizador.insert(tk.END, f"\nx error al generar el archivo .hex: {e}\n")
 
