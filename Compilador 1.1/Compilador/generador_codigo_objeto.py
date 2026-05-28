@@ -312,7 +312,11 @@ class GeneradorCodigoObjeto:
             if self._nl(atr) == "atributo":
                 ah = self._h(atr)
                 if len(ah) == 2:
-                    info[self._n(ah[0]).lower()] = self._expr(ah[1])
+                    clave = self._n(ah[0]).lower()
+                    # Normalizar: el lenguaje usa 'puerto' pero el codigo necesita 'pin'
+                    if clave == "puerto":
+                        clave = "pin"
+                    info[clave] = self._expr(ah[1])
         if tipo == "servo":
             self._usa_servo = True
         self._dispositivos[nombre] = info
@@ -467,7 +471,7 @@ class GeneradorCodigoObjeto:
             return f"analogWrite({pin}, 0)"   if cat == "salida_pwm" else f"digitalWrite({pin}, LOW)"
         if accion == "girarservo":
             arg = self._expr(arg_nodo) if self._nl(arg_nodo) != "vacio" else "90"
-            return f"{nombre}_servo.write({arg})"
+            return f"{nombre}_servo.write({arg});"
         if accion == "girarmotor":
             arg = self._expr(arg_nodo) if self._nl(arg_nodo) != "vacio" else "0"
             return f"analogWrite({pin}, {arg})"
